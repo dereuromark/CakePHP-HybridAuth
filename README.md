@@ -13,7 +13,7 @@ social sign on library.
 Requirements
 ------------
 
-* CakePHP 3.1+.
+* CakePHP 4.1+.
 
 Installation
 ------------
@@ -31,12 +31,6 @@ Load the plugin by running following command in terminal:
 
 ```
 bin/cake plugin load ADmad/HybridAuth -b -r
-```
-
-or by manually adding following line to your app's `config/bootstrap.php`:
-
-```php
-Plugin::load('ADmad/HybridAuth', ['bootstrap' => true, 'routes' => true]);
 ```
 
 Configuration
@@ -93,7 +87,7 @@ and a `social_profiles` table. You can run
 bin/cake migrations migrate -p ADmad/HybridAuth
 ```
 
-to generate the `social_profiles` tabel using a migration file provided with
+to generate the `social_profiles` table using a migration file provided with
 the plugin.
 
 Usage
@@ -176,7 +170,7 @@ a method of your `UsersTable` as callback for the event.
 If you also want to monitor all logins - and execute e.g. a login counter - you can listen for the `HybridAuth.login` event.
 
 ```php
-public function initialize(array $config)
+public function initialize(array $config): void
 {
     $this->hasMany('ADmad/HybridAuth.SocialProfiles');
 
@@ -184,24 +178,20 @@ public function initialize(array $config)
     \Cake\Event\EventManager::instance()->on('HybridAuth.login', [$this, 'updateUser']);
 }
 
-public function createUser(\Cake\Event\Event $event) 
+public function createUser(\Cake\Event\EventInterface $event)
 {
     // Entity representing record in social_profiles table
-    $profile = $event->data()['profile'];
+    $profile = $event->getData()['profile'];
 
     // Make sure here that all the required fields are actually present
 
     $user = $this->newEntity(['email' => $profile->email]);
-    $user = $this->save($user);
-
-    if (!$user) {
-        throw new \RuntimeException('Unable to save new user');
-    }
+    $user = $this->saveOrFail($user);
 
     return $user;
 }
 
-public function updateUser(\Cake\Event\Event $event, array $user) 
+public function updateUser(\Cake\Event\Event $event, array $user)
 {
     $this->updateAll(['logins = logins + 1', 'last_login' => new FrozenTime()], ['id' => $user['id']]);
 }
@@ -220,7 +210,7 @@ Additionally, you can also get a flash message for login back using the `HybridA
         'Flash'
     ];
 
-    public function updateUser(Event $event, array $user)
+    public function updateUser(EventInterface $event, array $user)
     {
         $this->Flash->success(__('You are now logged in'));
     }
