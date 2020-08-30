@@ -2,7 +2,7 @@
 namespace ADmad\HybridAuth\Controller;
 
 use App\Controller\AppController;
-use Cake\Event\Event;
+use Cake\Event\EventInterface;
 
 /**
  * HybridAuth Controller
@@ -12,16 +12,16 @@ use Cake\Event\Event;
  */
 class HybridAuthController extends AppController
 {
-
     /**
      * Allow methods 'endpoint' and 'authenticated'.
      *
-     * @param \Cake\Event\Event $event Before filter event.
+     * @param \Cake\Event\EventInterface $event Before filter event.
      * @return void
      */
-    public function beforeFilter(Event $event)
+    public function beforeFilter(EventInterface $event)
     {
         parent::beforeFilter($event);
+
         $this->Auth->allow(['endpoint', 'authenticated']);
     }
 
@@ -42,7 +42,7 @@ class HybridAuthController extends AppController
      *
      * Hyridauth's `hauth_return_to` is set to this action.
      *
-     * @return \Cake\Network\Response
+     * @return \Cake\Http\Response
      */
     public function authenticated()
     {

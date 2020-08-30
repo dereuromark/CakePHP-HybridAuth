@@ -5,10 +5,10 @@ use Cake\Auth\BaseAuthenticate;
 use Cake\Controller\ComponentRegistry;
 use Cake\Core\Configure;
 use Cake\Datasource\EntityInterface;
-use Cake\Event\Event;
 use Cake\Event\EventDispatcherTrait;
-use Cake\Network\Request;
-use Cake\Network\Response;
+use Cake\Event\EventInterface;
+use Cake\Http\Request;
+use Cake\Http\Response;
 use Cake\ORM\TableRegistry;
 use Cake\Routing\Router;
 use Cake\Utility\Inflector;
@@ -19,10 +19,11 @@ use Hybrid_Auth;
  *
  * Licensed under The MIT License
  * For full copyright and license information, please see the LICENSE.txt
+ *
+ * @deprecated In favor of middleware?
  */
 class HybridAuthAuthenticate extends BaseAuthenticate
 {
-
     use EventDispatcherTrait;
 
     /**
@@ -92,7 +93,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     /**
      * Initialize HybridAuth and this authenticator.
      *
-     * @param \Cake\Network\Request $request Request instance.
+     * @param \Cake\Http\Request $request Request instance.
      * @return void
      * @throws \RuntimeException Incase case of unknown error.
      */
@@ -170,7 +171,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     /**
      * Check if a provider is already connected, return user record if available.
      *
-     * @param \Cake\Network\Request $request Request instance.
+     * @param \Cake\Http\Request $request Request instance.
      * @return array|bool User array on success, false on failure.
      */
     public function getUser(Request $request)
@@ -190,8 +191,8 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     /**
      * Authenticate a user based on the request information.
      *
-     * @param \Cake\Network\Request $request Request to get authentication information from.
-     * @param \Cake\Network\Response $response A response object that can have headers added.
+     * @param \Cake\Http\Request $request Request to get authentication information from.
+     * @param \Cake\Http\Response $response A response object that can have headers added.
      * @return array|bool User array on success, false on failure.
      */
     public function authenticate(Request $request, Response $response)
@@ -348,14 +349,15 @@ class HybridAuthAuthenticate extends BaseAuthenticate
             ['profile' => $profile]
         );
 
-        if (empty($event->result) || !($event->result instanceof EntityInterface)) {
+        $result = $event->getResult();
+        if (!$result || !($result instanceof EntityInterface)) {
             throw new \RuntimeException('
                 You must attach a listener for "HybridAuth.newUser" event
                 which saves new user record and returns an user entity.
             ');
         }
 
-        return $event->result;
+        return $event->getResult();
     }
 
     /**
@@ -366,7 +368,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
      */
     protected function _query($identifier)
     {
-        list(, $userAlias) = pluginSplit($this->_config['userModel']);
+        [, $userAlias] = pluginSplit($this->_config['userModel']);
         $provider = $this->adapter()->id;
 
         return $this->_profileModel->find()
@@ -416,13 +418,13 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     /**
      * Logout all providers
      *
-     * @param \Cake\Event\Event $event Event.
+     * @param \Cake\Event\EventInterface $event Event.
      * @param array $user The user about to be logged out.
      * @return void
      */
-    public function logout(Event $event, array $user)
+    public function logout(EventInterface $event, array $user)
     {
-        $this->_init($event->subject()->request);
+        $this->_init($event->getSubject()->request);
         Hybrid_Auth::logoutAllProviders();
     }
 
