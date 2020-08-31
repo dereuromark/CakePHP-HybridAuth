@@ -16,15 +16,13 @@ use Cake\Datasource\EntityInterface;
 use Cake\Event\EventDispatcherInterface;
 use Cake\Event\EventDispatcherTrait;
 use Cake\Event\EventManager;
-use Cake\Http\Client;
 use Cake\Http\Response;
 use Cake\Http\ServerRequest;
-use Cake\Log\Log;
 use Cake\ORM\Locator\LocatorAwareTrait;
 use Cake\Routing\Router;
 use Cake\Utility\Hash;
-use Laminas\Diactoros\RequestFactory;
-use Laminas\Diactoros\StreamFactory;
+use Hybridauth\Hybridauth;
+use Hybridauth\User\Profile;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -88,18 +86,9 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
     ];
 
     /**
-     * SocialConnect service.
-     *
-     * @var \SocialConnect\Auth\Service|null
+     * @var \Hybridauth\Hybridauth
      */
-    protected $_service;
-
-    /**
-     * Session for SocialConnect service.
-     *
-     * @var \SocialConnect\Provider\Session\SessionInterface|null
-     */
-    protected $_session;
+    protected $_auth;
 
     /**
      * User model instance.
@@ -127,12 +116,10 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
      *
      * @param array $config Configuration.
      * @param \Cake\Event\EventManager|null $eventManager Event manager instance.
-     * @param \SocialConnect\Provider\Session\SessionInterface|null $session Session handler for SocialConnect Service
      */
     public function __construct(
         array $config = [],
-        ?EventManager $eventManager = null,
-        ?SessionInterface $session = null
+        ?EventManager $eventManager = null
     ) {
         $this->setConfig($config);
 
@@ -140,7 +127,7 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
             $this->setEventManager($eventManager);
         }
 
-        $this->_session = $session;
+        $this->
     }
 
     /**
@@ -180,13 +167,12 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
     {
         $request->allowMethod($this->getConfig('requestMethod'));
 
+        $this->_setupModelInstances();
+
         $providerName = $request->getParam('provider');
-        $provider = $this->_getService($request)->getProvider($providerName);
-        $authUrl = $provider->makeAuthUrl();
 
-        $this->_setRedirectUrl($request);
-
-        return (new Response())->withLocation($authUrl);
+        $profile = $this->_getProfile($providerName, $request);
+        dd($profile);
     }
 
     /**
@@ -258,8 +244,24 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
      *
      * @return \Cake\Datasource\EntityInterface|null
      */
-    protected function _getProfile($providerName, ServerRequest $request): ?EntityInterface
+    protected function _getProfile(string $providerName, ServerRequest $request): ?EntityInterface
     {
+        $hybridConfig = $this->_buildConfig($request);
+
+        try {
+            $this->_auth = new Hybridauth($hybridConfig);
+            $adapter = $this->_auth->authenticate($providerName);
+
+            $identity = $adapter->getUserProfile();
+
+        } catch (\Exception $e) {
+            if ($e->getCode() < 5) {
+                throw new \RuntimeException($e->getMessage());
+            } else {
+                //\Hybridauth\Hybridauth::initialize($hybridConfig);
+            }
+        }
+        /*
         try {
             $provider = $this->_getService($request)->getProvider($providerName);
             $accessToken = $provider->getAccessTokenByRequestParameters($request->getQueryParams());
@@ -273,21 +275,44 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
 
             return null;
         }
+       */
 
-        /** @var \Cake\Datasource\EntityInterface|null $profile */
+        /** @var \ADmad\HybridAuth\Model\Entity\SocialProfile|null $profile */
         $profile = $this->_profileModel->find()
             ->where([
                 $this->_profileModel->aliasField('provider') => $providerName,
-                $this->_profileModel->aliasField('identifier') => $identity->id,
+                $this->_profileModel->aliasField('identifier') => $identity->identifier,
             ])
             ->first();
 
         return $this->_patchProfile(
             $providerName,
             $identity,
-            $accessToken,
-            $profile ?: null
+            $profile
         );
+    }
+
+    /**
+     * Append the "redirect" query string param to URL.
+     *
+     * @param string|array $url URL
+     * @param string $redirectQueryString Redirect query string
+     * @return string URL
+     */
+    protected function _appendRedirectQueryString($url, $redirectQueryString)
+    {
+        if (!$redirectQueryString) {
+            return $url;
+        }
+
+        if (is_array($url)) {
+            $url['?'][static::QUERY_STRING_REDIRECT] = $redirectQueryString;
+        } else {
+            $char = strpos($url, '?') === false ? '?' : '&';
+            $url .= $char . static::QUERY_STRING_REDIRECT . '=' . urlencode($redirectQueryString);
+        }
+
+        return $url;
     }
 
     /**
@@ -342,16 +367,14 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
      * Get social profile entity.
      *
      * @param string $providerName Provider name.
-     * @param \SocialConnect\Common\Entity\User $identity Social connect entity.
-     * @param \SocialConnect\Provider\AccessTokenInterface $accessToken Access token
+     * @param \Hybridauth\User\Profile $identity Social connect entity.
      * @param \Cake\Datasource\EntityInterface $profile Social profile entity
      *
      * @return \Cake\Datasource\EntityInterface
      */
     protected function _patchProfile(
         $providerName,
-        SocialConnectUser $identity,
-        AccessTokenInterface $accessToken,
+        Profile $identity,
         ?EntityInterface $profile = null
     ): EntityInterface {
         if ($profile === null) {
@@ -361,7 +384,6 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
         }
 
         $data = [
-            'access_token' => $accessToken,
         ];
 
         foreach (get_object_vars($identity) as $key => $value) {
@@ -440,51 +462,6 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
     }
 
     /**
-     * Get social connect service instance.
-     *
-     * @param \Cake\Http\ServerRequest $request Request instance.
-     *
-     * @return \SocialConnect\Auth\Service
-     */
-    protected function _getService(ServerRequest $request): Service
-    {
-        if ($this->_service !== null) {
-            return $this->_service;
-        }
-
-        $serviceConfig = $this->getConfig('serviceConfig');
-        if (empty($serviceConfig)) {
-            Configure::load('social_auth');
-            $serviceConfig = Configure::consume('HybridAuth');
-        }
-
-        if (!isset($serviceConfig['redirectUri'])) {
-            $serviceConfig['redirectUri'] = Router::url([
-                'plugin' => 'ADmad/HybridAuth',
-                'controller' => 'Auth',
-                'action' => 'callback',
-                '${provider}',
-            ], true);
-        }
-
-        $request->getSession()->start();
-
-        $httpStack = new HttpStack(
-            new Client(),
-            new RequestFactory(),
-            new StreamFactory()
-        );
-
-        $this->_service = new Service(
-            $httpStack,
-            $this->_session ?: new Session(),
-            $serviceConfig
-        );
-
-        return $this->_service;
-    }
-
-    /**
      * Save URL to redirect to after authentication to session.
      *
      * @param \Cake\Http\ServerRequest $request Request instance.
@@ -557,5 +534,33 @@ class HybridAuthMiddleware implements MiddlewareInterface, EventDispatcherInterf
         $message .= "\nStack Trace:\n" . $exception->getTraceAsString() . "\n\n";
 
         return $message;
+    }
+
+    /**
+     * @param \Cake\Http\ServerRequest $request
+     *
+     * @return array
+     */
+    protected function _buildConfig(ServerRequest $request): array
+    {
+        Configure::read('HybridAuth');
+
+        if (empty($hybridConfig['base_url'])) {
+            $hybridConfig['base_url'] = [
+                'plugin' => 'ADmad/HybridAuth',
+                'controller' => 'HybridAuth',
+                'action' => 'endpoint',
+                'prefix' => false
+            ];
+        }
+
+        $hybridConfig['base_url'] = $this->_appendRedirectQueryString(
+            $hybridConfig['base_url'],
+            $request->getQuery(static::QUERY_STRING_REDIRECT)
+        );
+
+        $hybridConfig['base_url'] = Router::url($hybridConfig['base_url'], true);
+
+        return $hybridConfig;
     }
 }

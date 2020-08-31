@@ -12,7 +12,6 @@ use Cake\Http\Response;
 use Cake\ORM\TableRegistry;
 use Cake\Routing\Router;
 use Cake\Utility\Inflector;
-use Hybrid_Auth;
 
 /**
  * HybridAuth Authenticate
@@ -121,19 +120,19 @@ class HybridAuthAuthenticate extends BaseAuthenticate
 
         $hybridConfig['base_url'] = $this->_appendRedirectQueryString(
             $hybridConfig['base_url'],
-            $request->query(static::QUERY_STRING_REDIRECT)
+            $request->getQuery(static::QUERY_STRING_REDIRECT)
         );
 
         $hybridConfig['base_url'] = Router::url($hybridConfig['base_url'], true);
 
         try {
-            Hybrid_Auth::initialize($hybridConfig);
+            \Hybridauth\Hybridauth::initialize($hybridConfig);
         } catch (\Exception $e) {
             if ($e->getCode() < 5) {
                 throw new \RuntimeException($e->getMessage());
             } else {
                 $this->_registry->Auth->flash($e->getMessage());
-                Hybrid_Auth::initialize($hybridConfig);
+                \Hybridauth\Hybridauth::initialize($hybridConfig);
             }
         }
     }
@@ -178,9 +177,9 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     {
         $this->_init($request);
 
-        $providers = Hybrid_Auth::getConnectedProviders();
+        $providers = \Hybridauth\Hybridauth::getConnectedProviders();
         foreach ($providers as $provider) {
-            $adapter = Hybrid_Auth::getAdapter($provider);
+            $adapter = \Hybridauth\Hybridauth::getAdapter($provider);
 
             return $this->_getUser($adapter);
         }
@@ -212,21 +211,21 @@ class HybridAuthAuthenticate extends BaseAuthenticate
             'action' => 'authenticated',
             'prefix' => false
         ];
-        if ($this->config('hauth_return_to')) {
-            $returnTo = $this->config('hauth_return_to');
+        if ($this->getConfig('hauth_return_to')) {
+            $returnTo = $this->getConfig('hauth_return_to');
         }
 
         $returnTo = $this->_appendRedirectQueryString(
             $returnTo,
-            $request->query(static::QUERY_STRING_REDIRECT)
+            $request->getQuery(static::QUERY_STRING_REDIRECT)
         );
 
         $params = ['hauth_return_to' => Router::url($returnTo, true)];
         if ($provider === 'OpenID') {
-            $params['openid_identifier'] = $request->query($this->_config['fields']['openid_identifier']);
+            $params['openid_identifier'] = $request->getQuery($this->_config['fields']['openid_identifier']);
         }
 
-        $adapter = Hybrid_Auth::authenticate($provider, $params);
+        $adapter = \Hybridauth\Hybridauth::authenticate($provider, $params);
 
         if ($adapter) {
             return $this->_getUser($adapter);
@@ -293,7 +292,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
             $userId = $profile->get($config['profileModelFkField']);
             $user = $this->_userModel->find($config['finder'])
                 ->where([
-                    $userModel->aliasField($userModel->primaryKey()) => $userId
+                    $userModel->aliasField($userModel->getPrimaryKey()) => $userId
                 ])
                 ->first();
 
@@ -320,7 +319,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
             $user = $this->_newUser($profile);
         }
 
-        $profile->{$config['profileModelFkField']} = $user->{$userModel->primaryKey()};
+        $profile->{$config['profileModelFkField']} = $user->{$userModel->getPrimaryKey()};
         $profile = $this->_profileModel->save($profile);
         if (!$profile) {
             throw new \RuntimeException('Unable to save social profile.');
@@ -425,7 +424,7 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     public function logout(EventInterface $event, array $user)
     {
         $this->_init($event->getSubject()->request);
-        Hybrid_Auth::logoutAllProviders();
+        \Hybridauth\Hybridauth::logoutAllProviders();
     }
 
     /**
@@ -436,28 +435,5 @@ class HybridAuthAuthenticate extends BaseAuthenticate
     public function implementedEvents()
     {
         return ['Auth.logout' => 'logout'];
-    }
-
-    /**
-     * Append the "redirect" query string param to URL.
-     *
-     * @param string|array $url URL
-     * @param string $redirectQueryString Redirect query string
-     * @return string URL
-     */
-    protected function _appendRedirectQueryString($url, $redirectQueryString)
-    {
-        if (!$redirectQueryString) {
-            return $url;
-        }
-
-        if (is_array($url)) {
-            $url['?'][static::QUERY_STRING_REDIRECT] = $redirectQueryString;
-        } else {
-            $char = strpos($url, '?') === false ? '?' : '&';
-            $url .= $char . static::QUERY_STRING_REDIRECT . '=' . urlencode($redirectQueryString);
-        }
-
-        return $url;
     }
 }
